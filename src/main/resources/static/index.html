@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>파일 날짜별 분류기</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- jQuery CDN -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <style>
+        /* 부드러운 스크롤을 위한 설정 */
+        #progressLog {
+            scroll-behavior: smooth;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased">
+
+<div class="container mx-auto p-4">
+
+    <div class="max-w-3xl mx-auto mt-12 bg-white shadow-xl rounded-lg overflow-hidden">
+        <div class="p-8">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">파일 날짜별 분류기</h1>
+            <p class="text-gray-600 mb-6">
+                서버에 설정된 소스 폴더의 파일을 마지막 수정 날짜(년/월) 기준으로 자동 분류합니다.
+            </p>
+
+            <div class="mb-6">
+                <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                    분류 시작
+                </button>
+            </div>
+
+            <!-- 진행 상황 로그 -->
+            <div class="bg-gray-900 text-white rounded-lg p-6 shadow-inner">
+                <h2 class="text-lg font-semibold mb-4 border-b border-gray-700 pb-2">진행 상황 로그</h2>
+                <pre id="progressLog" class="max-h-96 overflow-y-auto text-sm font-mono whitespace-pre-wrap break-words">작업 대기 중...</pre>
+            </div>
+
+            <p id="statusText" class="text-center text-gray-500 mt-6 text-sm">
+                준비 완료
+            </p>
+        </div>
+    </div>
+
+</div>
+
+<script type="module">
+    // jQuery의 $(document).ready() 축약형
+    $(() => {
+        const $startButton = $('#startButton');
+        const $progressLog = $('#progressLog');
+        const $statusText = $('#statusText');
+        let eventSource = null;
+
+        $startButton.on('click', () => {
+            if (eventSource) {
+                // 이미 실행 중이면 중복 실행 방지
+                return;
+            }
+
+            // UI 초기화 및 비활성화 (jQuery 메소드 체이닝 사용)
+            $startButton.prop('disabled', true).text('분류 중...');
+            $progressLog.text('서버에 연결 중...'); // .textContent -> .text()
+            $statusText.text('작업을 시작합니다...');
+
+            // EventSource 연결 시작
+            eventSource = new EventSource('/api/sort-and-progress');
+
+            // 1. 서버에서 'message' 이벤트 수신
+            eventSource.addEventListener('message', (event) => {
+                const message = event.data;
+
+                // 로그 창에 메시지 추가 (jQuery DOM 생성 및 append)
+                const $logEntry = $('<div></div>').text(`[${new Date().toLocaleTimeString()}] ${message}`);
+                $progressLog.append($logEntry);
+
+                // 로그 창 자동 스크롤 (jQuery.scrollTop() 및 .prop() 사용)
+                $progressLog.scrollTop($progressLog.prop('scrollHeight'));
+            });
+
+            // 2. 서버에서 'error' 이벤트 수신 (커스텀 오류)
+            eventSource.addEventListener('error', (event) => {
+                const message = event.data;
+                if (message) {
+                    // jQuery로 클래스 추가 및 append
+                    const $logEntry = $('<div></div>')
+                        .addClass('text-red-400') // .className -> .addClass()
+                        .text(`[${new Date().toLocaleTimeString()}] 오류: ${message}`);
+                    $progressLog.append($logEntry);
+                    $progressLog.scrollTop($progressLog.prop('scrollHeight'));
+                }
+            });
+
+
+            // 3. EventSource 자체의 연결 오류 (또는 서버의 emitter.complete() 호출 시)
+            eventSource.onerror = (err) => {
+                console.error("EventSource 실패:", err);
+
+                // 연결 종료
+                eventSource.close();
+                eventSource = null; // 참조 제거
+
+                // UI 복원
+                $startButton.prop('disabled', false).text('분류 시작');
+
+                const $logEntry = $('<div></div>')
+                    .addClass('text-yellow-400 font-bold')
+                    .text(`[${new Date().toLocaleTimeString()}] 서버 연결이 종료되었습니다. (작업 완료 또는 오류)`);
+                $progressLog.append($logEntry);
+                $progressLog.scrollTop($progressLog.prop('scrollHeight'));
+
+                $statusText.text('작업 완료 또는 중단됨.');
+            };
+        });
+    });
+</script>
+</body>
+</html>
