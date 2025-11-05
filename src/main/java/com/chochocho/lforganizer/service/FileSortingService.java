@@ -63,7 +63,7 @@ public class FileSortingService {
         Path targetPathBase = Paths.get(effectiveTargetDir);
 
         if (!Files.isDirectory(sourcePath)) {
-            sendEvent(emitter, "오류: 소스 폴더 '" + sourceDir + "'를 찾을 수 없거나 디렉토리가 아닙니다.", true);
+            sendEvent(emitter, "오류: 소스 폴더 '" + effectiveSourceDir + "'를 찾을 수 없거나 디렉토리가 아닙니다.", true);
             emitter.complete();
             return;
         }
