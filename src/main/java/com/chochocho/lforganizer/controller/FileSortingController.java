@@ -1,6 +1,8 @@
 package com.chochocho.lforganizer.controller;
 
+import com.chochocho.lforganizer.dto.ProgressEvent;
 import com.chochocho.lforganizer.service.FileSortingService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,12 +19,14 @@ public class FileSortingController {
 
     private static final Logger log = LoggerFactory.getLogger(FileSortingController.class);
     private final FileSortingService fileSortingService;
+    private final ObjectMapper objectMapper; // JSON 직렬화를 위해 추가
 
     // SSE 타임아웃 (1시간)
     private static final Long SSE_TIMEOUT = 3600_000L;
-
-    public FileSortingController(FileSortingService fileSortingService) {
+    // --- 생성자 주입 방식 변경 ---
+    public FileSortingController(FileSortingService fileSortingService, ObjectMapper objectMapper) {
         this.fileSortingService = fileSortingService;
+        this.objectMapper = objectMapper; // 주입
     }
 
     /**
@@ -66,7 +70,13 @@ public class FileSortingController {
             if (targetDir != null && !targetDir.isBlank()) { // targetDir 메시지 추가
                 connectMessage += " (Target: " + targetDir + ")";
             }
-            emitter.send(SseEmitter.event().name("message").data(connectMessage));
+
+            // --- 초기 메시지를 JSON 객체로 전송 ---
+            ProgressEvent connectEvent = ProgressEvent.connect(connectMessage);
+            String jsonMessage = objectMapper.writeValueAsString(connectEvent);
+            emitter.send(SseEmitter.event().name("message").data(jsonMessage));
+            // ---
+
         } catch (IOException e) {
             log.warn("초기 SSE 메시지 전송 실패", e);
         }
