@@ -51,7 +51,12 @@
 
             <!-- 대시보드: 진행 통계 -->
             <div class="mb-6" id="statsDashboard">
-                <div class="grid grid-cols-3 gap-4">
+                <div class="grid grid-cols-4 gap-4">
+                    <!-- 총 파일 수 -->
+                    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+                        <div class="text-sm text-blue-700 font-medium mb-1">총 파일</div>
+                        <div id="countTotal" class="text-2xl font-bold text-blue-700">0</div>
+                    </div>
                     <!-- 분류완료 -->
                     <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
                         <div class="text-sm text-green-700 font-medium mb-1">분류완료</div>
@@ -94,13 +99,16 @@
         const $targetDirInput = $('#targetDirInput'); // 대상 폴더 입력 필드
 
         // 대시보드 카운터 요소 및 상태
+        const $countTotal = $('#countTotal');
         const $countCompleted = $('#countCompleted');
         const $countExists = $('#countExists');
         const $countErrors = $('#countErrors');
+        let countTotal = 0;
         let countCompleted = 0;
         let countExists = 0;
         let countErrors = 0;
         const updateCounters = () => {
+            $countTotal.text(countTotal);
             $countCompleted.text(countCompleted);
             $countExists.text(countExists);
             $countErrors.text(countErrors);
@@ -134,6 +142,7 @@
             $statusText.text('작업을 시작합니다...');
 
             // 대시보드 카운터 초기화
+            countTotal = 0;
             countCompleted = 0;
             countExists = 0;
             countErrors = 0;
@@ -186,6 +195,18 @@
                 } catch (_) {
                     // 구버전 문자열 대응
                     messageText = event.data;
+                }
+
+                // 총 파일 수 파싱: "총 N개의 파일을 발견했습니다" 패턴 인식
+                if (level === 'INFO') {
+                    const m = messageText.match(/^총\s*([\d,]+)개의 파일을 발견했습니다/);
+                    if (m && m[1]) {
+                        const num = parseInt(m[1].replace(/,/g, ''), 10);
+                        if (!Number.isNaN(num)) {
+                            countTotal = num;
+                            updateCounters();
+                        }
+                    }
                 }
 
                 // 카운트 로직: INFO에서 "이동:" 문구를 분류완료로 집계
