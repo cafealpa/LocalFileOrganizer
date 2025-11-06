@@ -21,23 +21,28 @@ import java.util.stream.Stream;
 public class FileSortingService {
 
     private static final Logger log = LoggerFactory.getLogger(FileSortingService.class);
+    public static final String MODE_MOVE = "MOVE";
 
-    // --- 의존성 주입 방식 변경 (필드 주입 -> 생성자 주입) ---
     private final String sourceDir;
     private final String targetDir;
     private final ObjectMapper objectMapper; // JSON 직렬화를 위해 추가
+
+    @Value("${file.working.mode}")
+    private String workingMode;
 
     private static final DateTimeFormatter YEAR_FORMAT = DateTimeFormatter.ofPattern("yyyy");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("MM");
 
     // 생성자를 통한 의존성 주입
-    public FileSortingService(@Value("${file.source-dir}") String sourceDir, @Value("${file.target-dir}") String targetDir, ObjectMapper objectMapper // Spring Boot가 자동으로 주입
+    public FileSortingService(
+            @Value("${file.source-dir}") String sourceDir,
+            @Value("${file.target-dir}") String targetDir,
+            ObjectMapper objectMapper // Spring Boot가 자동으로 주입
     ) {
         this.sourceDir = sourceDir;
         this.targetDir = targetDir;
         this.objectMapper = objectMapper;
     }
-    // --- 의존성 주입 방식 변경 완료 ---
 
 
     /**
@@ -128,9 +133,13 @@ public class FileSortingService {
                         sendEvent(emitter, ProgressEvent.warn("'" + file.getFileName() + "' 파일이 대상 폴더에 이미 존재하여 건너뜁니다."));
                         skippedFiles++;
                     } else {
-                        // 파일 이동
-//                        Files.move(file, targetFile);
-                        Files.copy(file, targetFile);
+                        if (MODE_MOVE.equals(workingMode)) {
+                            // 파일 이동
+                            Files.move(file, targetFile);
+                        } else {
+                            Files.copy(file, targetFile);
+                        }
+
 
                         sendEvent(emitter, ProgressEvent.info("이동: '" + file.getFileName() + "' -> " + year + "/" + mm));
                         processedFiles++;
