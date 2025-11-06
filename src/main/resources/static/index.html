@@ -29,21 +29,45 @@
             <!-- === Source Dir 입력 필드 추가 === -->
             <div class="mb-4">
                 <label for="sourceDirInput" class="block text-sm font-medium text-gray-700 mb-1">소스 폴더 (Source Dir)</label>
-                <input type="text" id="sourceDirInput" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: C:\temp\source (입력하지 않으면 서버 설정값 사용)">
+                <input type="text" id="sourceDirInput" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="예: C:\temp\source (입력하지 않으면 서버 설정값 사용)">
             </div>
             <!-- ================================ -->
 
             <!-- === Target Dir 입력 필드 추가 === -->
             <div class="mb-6">
                 <label for="targetDirInput" class="block text-sm font-medium text-gray-700 mb-1">대상 폴더 (Target Dir)</label>
-                <input type="text" id="targetDirInput" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="예: C:\temp\target (입력하지 않으면 서버 설정값 사용)">
+                <input type="text" id="targetDirInput" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="예: C:\temp\target (입력하지 않으면 서버 설정값 사용)">
             </div>
             <!-- ================================ -->
 
             <div class="mb-6">
-                <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                <button id="startButton"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
                     분류 시작
                 </button>
+            </div>
+
+            <!-- 대시보드: 진행 통계 -->
+            <div class="mb-6" id="statsDashboard">
+                <div class="grid grid-cols-3 gap-4">
+                    <!-- 분류완료 -->
+                    <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+                        <div class="text-sm text-green-700 font-medium mb-1">분류완료</div>
+                        <div id="countCompleted" class="text-2xl font-bold text-green-700">0</div>
+                    </div>
+                    <!-- 파일있음 (이미 대상 폴더에 존재) -->
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-center">
+                        <div class="text-sm text-amber-700 font-medium mb-1">건너뜀</div>
+                        <div id="countExists" class="text-2xl font-bold text-amber-700">0</div>
+                    </div>
+                    <!-- 에러 -->
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+                        <div class="text-sm text-red-700 font-medium mb-1">에러</div>
+                        <div id="countErrors" class="text-2xl font-bold text-red-700">0</div>
+                    </div>
+                </div>
             </div>
 
             <!-- 진행 상황 로그 -->
@@ -68,7 +92,22 @@
         const $statusText = $('#statusText');
         const $sourceDirInput = $('#sourceDirInput'); // 입력 필드 jQuery 객체
         const $targetDirInput = $('#targetDirInput'); // 대상 폴더 입력 필드
+
+        // 대시보드 카운터 요소 및 상태
+        const $countCompleted = $('#countCompleted');
+        const $countExists = $('#countExists');
+        const $countErrors = $('#countErrors');
+        let countCompleted = 0;
+        let countExists = 0;
+        let countErrors = 0;
+        const updateCounters = () => {
+            $countCompleted.text(countCompleted);
+            $countExists.text(countExists);
+            $countErrors.text(countErrors);
+        };
+
         let eventSource = null;
+        let isCompletedNormally = false; // --- 추가: 정상 완료 여부를 추적하는 플래그 ---
 
         // --- 추가: 페이지 로드 시 localStorage에서 저장된 경로 불러오기 ---
         const savedSourceDir = localStorage.getItem('fileSorterSourceDir');
@@ -88,10 +127,17 @@
                 return;
             }
 
+            isCompletedNormally = false; // --- 추가: 작업 시작 시 플래그 초기화 ---
             // UI 초기화 및 비활성화 (jQuery 메소드 체이닝 사용)
             $startButton.prop('disabled', true).text('분류 중...');
             $progressLog.text('서버에 연결 중...'); // .textContent -> .text()
             $statusText.text('작업을 시작합니다...');
+
+            // 대시보드 카운터 초기화
+            countCompleted = 0;
+            countExists = 0;
+            countErrors = 0;
+            updateCounters();
 
             // --- 로직 변경: 입력된 소스/대상 디렉토리 값 가져오기 ---
             const sourceDir = $sourceDirInput.val();
@@ -129,50 +175,107 @@
             // EventSource 연결 시작 (수정된 apiUrl 사용)
             eventSource = new EventSource(apiUrl);
 
-            // 1. 서버에서 'message' 이벤트 수신
+            // 1. 서버에서 'message' 이벤트 수신 (JSON: { level, message })
             eventSource.addEventListener('message', (event) => {
-                const message = event.data;
+                let level = 'INFO';
+                let messageText = '';
+                try {
+                    const obj = JSON.parse(event.data);
+                    level = obj.level || 'INFO';
+                    messageText = obj.message || '';
+                } catch (_) {
+                    // 구버전 문자열 대응
+                    messageText = event.data;
+                }
+
+                // 카운트 로직: INFO에서 "이동:" 문구를 분류완료로 집계
+                if (level === 'INFO' && messageText.startsWith('이동:')) {
+                    countCompleted += 1;
+                    updateCounters();
+                }
+
+                // WARN은 여기로 오지 않음 (서버는 WARN도 message로 보냄). WARN 카운트는 아래 custom 'error'가 아님.
+                // 실제 WARN은 eventName=message로 전송되므로 별도 케이스 처리 필요 시 level==='WARN'로 분기 가능
+                if (level === 'WARN' && messageText.includes('이미 존재하여 건너뜁니다')) {
+                    countExists += 1;
+                    updateCounters();
+                }
 
                 // 로그 창에 메시지 추가 (jQuery DOM 생성 및 append)
-                const $logEntry = $('<div></div>').text(`[${new Date().toLocaleTimeString()}] ${message}`);
+                const $logEntry = $('<div></div>').text(`[${new Date().toLocaleTimeString()}] ${messageText}`);
+                if (level === 'WARN') {
+                    $logEntry.addClass('text-yellow-400');
+                }
+
                 $progressLog.append($logEntry);
 
-                // 로그 창 자동 스크롤 (jQuery.scrollTop() 및 .prop() 사용)
+                // 로그 창 자동 스크롤
                 $progressLog.scrollTop($progressLog.prop('scrollHeight'));
             });
 
-            // 2. 서버에서 'error' 이벤트 수신 (커스텀 오류)
+            // 2. 서버에서 'error' 이벤트 수신 (커스텀 오류, JSON: { level: 'ERROR', message })
             eventSource.addEventListener('error', (event) => {
-                const message = event.data;
-                if (message) {
-                    // jQuery로 클래스 추가 및 append
+                let messageText = '';
+                try {
+                    const obj = JSON.parse(event.data);
+                    messageText = obj.message || '';
+                } catch (_) {
+                    // 구버전 문자열 대응
+                    messageText = event.data || '';
+                }
+
+                // isCompletedNormally 플래그를 확인하여 정상 종료인지 실제 오류인지 구분
+                if (isCompletedNormally) {
+                    console.log("서버 작업 완료에 따른 정상적인 연결 종료입니다.");
+                } else {
+                    // 에러 카운트 증가
+                    countErrors += 1;
+                    updateCounters();
+
+                    // 로그 출력
                     const $logEntry = $('<div></div>')
-                        .addClass('text-red-400') // .className -> .addClass()
-                        .text(`[${new Date().toLocaleTimeString()}] 오류: ${message}`);
+                        .addClass('text-red-400')
+                        .text(`[${new Date().toLocaleTimeString()}] 오류: ${messageText}`);
                     $progressLog.append($logEntry);
                     $progressLog.scrollTop($progressLog.prop('scrollHeight'));
                 }
             });
 
+            // 서버로부터 'complete' 이벤트 수신 (정상 종료 신호)
+            eventSource.addEventListener('complete', (event) => {
+                console.log("서버로부터 작업 완료 신호 수신:", event.data);
+                isCompletedNormally = true; // 정상 완료 플래그 설정
+
+                // 여기서 UI를 최종 완료 상태로 업데이트 할 수도 있습니다.
+                $statusText.text('작업 완료! 곧 연결이 종료됩니다.');
+            });
+
 
             // 3. EventSource 자체의 연결 오류 (또는 서버의 emitter.complete() 호출 시)
             eventSource.onerror = (err) => {
-                console.error("EventSource 실패:", err);
+                // isCompletedNormally 플래그를 확인하여 정상 종료인지 실제 오류인지 구분
+                if (isCompletedNormally) {
+                    console.log("서버 작업 완료에 따른 정상적인 연결 종료입니다.");
+                    $statusText.text('작업 완료됨.');
+                } else {
+                    console.error("EventSource 오류 발생:", err);
+                    // 실제 오류일 때만 오류 로그를 남기고, 필요한 경우 에러 카운트를 올립니다.
+                    countErrors += 1;
+                    updateCounters();
+                    const $logEntry = $('<div></div>')
+                        .addClass('text-red-500 font-bold')
+                        .text(`[${new Date().toLocaleTimeString()}] 네트워크 또는 서버 오류로 연결이 끊겼습니다.`);
+                    $progressLog.append($logEntry);
+                    $statusText.text('오류로 인해 작업이 중단되었습니다.');
+                }
 
                 // 연결 종료
                 eventSource.close();
                 eventSource = null; // 참조 제거
 
-                // UI 복원
+                // 공통 UI 복원
                 $startButton.prop('disabled', false).text('분류 시작');
-
-                const $logEntry = $('<div></div>')
-                    .addClass('text-yellow-400 font-bold')
-                    .text(`[${new Date().toLocaleTimeString()}] 서버 연결이 종료되었습니다. (작업 완료 또는 오류)`);
-                $progressLog.append($logEntry);
                 $progressLog.scrollTop($progressLog.prop('scrollHeight'));
-
-                $statusText.text('작업 완료 또는 중단됨.');
             };
         });
     });
