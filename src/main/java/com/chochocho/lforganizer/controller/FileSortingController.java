@@ -21,8 +21,8 @@ public class FileSortingController {
     private final FileSortingService fileSortingService;
     private final ObjectMapper objectMapper; // JSON 직렬화를 위해 추가
 
-    // SSE 타임아웃 (1시간)
-    private static final Long SSE_TIMEOUT = 3600_000L;
+    // SSE 타임아웃 (2시간)
+    private static final Long SSE_TIMEOUT = 7200_000L;
     // --- 생성자 주입 방식 변경 ---
     public FileSortingController(FileSortingService fileSortingService, ObjectMapper objectMapper) {
         this.fileSortingService = fileSortingService;

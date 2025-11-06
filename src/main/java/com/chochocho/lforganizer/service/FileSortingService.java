@@ -109,7 +109,7 @@ public class FileSortingService {
                         localDateTime = LocalDate.parse(datePrefix, DateTimeFormatter.ofPattern("yyyyMMdd"));
                     } catch (Exception e) {
 
-                        sendEvent(emitter, ProgressEvent.error("'" + fileName + "'의 날짜 형식이 유효하지 않아 건너뜁니다."));
+                        sendEvent(emitter, ProgressEvent.warn("'" + fileName + "'의 날짜 형식이 유효하지 않아 건너뜁니다."));
                         skippedFiles++;
                         continue;
                     }
