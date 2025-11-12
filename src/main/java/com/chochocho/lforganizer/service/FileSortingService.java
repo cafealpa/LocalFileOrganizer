@@ -10,11 +10,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 @Service
@@ -25,10 +28,14 @@ public class FileSortingService {
 
     private final String sourceDir;
     private final String targetDir;
+    private final String workingMode;
+    private final String trashFolderName;
+    private final List<String> deleteFileList;
+
     private final ObjectMapper objectMapper; // JSON 직렬화를 위해 추가
 
-    @Value("${file.working.mode}")
-    private String workingMode;
+
+
 
     private static final DateTimeFormatter YEAR_FORMAT = DateTimeFormatter.ofPattern("yyyy");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("MM");
@@ -37,10 +44,16 @@ public class FileSortingService {
     public FileSortingService(
             @Value("${file.source-dir}") String sourceDir,
             @Value("${file.target-dir}") String targetDir,
+            @Value("${file.working.mode}") String workingMode,
+            @Value("${file.trash-folder-name}") String trashFolderName,
+            @Value("${file.delete-file-list}") List<String> deleteFileList,
             ObjectMapper objectMapper // Spring Boot가 자동으로 주입
     ) {
         this.sourceDir = sourceDir;
         this.targetDir = targetDir;
+        this.workingMode = workingMode;
+        this.trashFolderName = trashFolderName;
+        this.deleteFileList = deleteFileList;
         this.objectMapper = objectMapper;
     }
 
@@ -96,19 +109,37 @@ public class FileSortingService {
 
             sendEvent(emitter, ProgressEvent.info("총 " + totalFiles + "개의 파일을 발견했습니다. (하위 폴더 포함, 소스: " + effectiveSourceDir + ")"));
 
+            List<Path> skippedFilesList = new ArrayList<>();
             for (Path file : filesToProcess) {
                 try {
-                    // 파일명에서 날짜 추출
                     String fileName = file.getFileName().toString();
-                    if (fileName.length() < 8) {
 
-                        sendEvent(emitter, ProgressEvent.warn("'" + fileName + "'의 파일명이 yyyyMMdd로 시작하지 않아 건너뜁니다."));
+                    if(deleteFileList.contains(fileName)) {
+                        // 필요없는 파일 삭제.
+                        Files.delete(file);
                         skippedFiles++;
                         continue;
                     }
 
+                    // 파일명에서 날짜 추출
+                    if (fileName.length() < 8) {
+                        sendEvent(emitter, ProgressEvent.warn("'" + fileName + "'의 파일명이 yyyyMMdd로 시작하지 않아 건너뜁니다."));
+                        skippedFiles++;
+                        skippedFilesList.add(file);
+                        continue;
+                    }
+
                     // yyyyMMdd 추출 및 검증
-                    String datePrefix = fileName.substring(0, 8); // 파일명 첫 8자리 추출
+                    String datePrefix;
+                    if (fileName.toUpperCase().startsWith("IMG_") || fileName.toUpperCase().startsWith("SNOW_")) {
+                        datePrefix = fileName
+                                .replace("IMG_", "")
+                                .replace("SNOW_", "")
+                                .substring(0, 8);
+                    } else {
+                        datePrefix = fileName.substring(0, 8); // 파일명 첫 8자리 추출
+                    }
+
                     LocalDate localDateTime;
                     try {
                         localDateTime = LocalDate.parse(datePrefix, DateTimeFormatter.ofPattern("yyyyMMdd"));
@@ -116,6 +147,7 @@ public class FileSortingService {
 
                         sendEvent(emitter, ProgressEvent.warn("'" + fileName + "'의 날짜 형식이 유효하지 않아 건너뜁니다."));
                         skippedFiles++;
+                        skippedFilesList.add(file);
                         continue;
                     }
 
@@ -129,8 +161,23 @@ public class FileSortingService {
                     Path targetFile = targetDirWithDate.resolve(file.getFileName());
 
                     if (Files.exists(targetFile)) {
+                        sendEvent(emitter, ProgressEvent.warn("'" + file.getFileName() + "' 파일이 대상 폴더에 이미 존재하여 휴지통폴더로 이동하고 건너뜁니다."));
 
-                        sendEvent(emitter, ProgressEvent.warn("'" + file.getFileName() + "' 파일이 대상 폴더에 이미 존재하여 건너뜁니다."));
+                        Path trashDir = targetPathBase.resolve(trashFolderName)
+                                .resolve(year)
+                                .resolve(year + "_" + mm);
+
+                        Files.createDirectories(trashDir); // 대상 폴더 생성 (존재하면 무시됨)
+
+                        Path trashFile = trashDir.resolve(file.getFileName());
+
+                        try {
+                            Files.move(file, trashFile); // 중복 파일 trash 폴더로 이동
+                        } catch (FileAlreadyExistsException faee) {
+                            Files.delete(file);
+                            log.info("'{}' - Trash 폴더에도 파일이 존재하여 원본파일을 삭제합니다.", file.getFileName());
+                        }
+
                         skippedFiles++;
                     } else {
                         if (MODE_MOVE.equals(workingMode)) {
@@ -158,6 +205,11 @@ public class FileSortingService {
             log.info(summary);
 
             sendEvent(emitter, ProgressEvent.complete("작업을 완료 하였습니다."));
+
+            // 추가 작업 건너뛴 파일 최상위 폴더로 이동
+//            if(!skippedFilesList.isEmpty()) {
+//                moveTopFolder(skippedFilesList);
+//            }
 
         } catch (IOException e) {
             log.error("소스 디렉토리 읽기 오류", e);
@@ -194,5 +246,17 @@ public class FileSortingService {
             // 클라이언트 연결이 끊어진 경우 등
             log.warn("SSE 메시지 전송 실패: {}", event, e);
         }
+    }
+
+
+    private void moveTopFolder(List<Path> skippedFiles) {
+        for(Path file : skippedFiles) {
+            try {
+                Files.move(file, file.getParent().getParent().resolve(file.getFileName()));
+            } catch (IOException e) {
+                log.error("Skip 파일을 옮기는중 오류가 발생하였습니다.{}", file.getFileName(), e);
+            }
+        }
+
     }
 }

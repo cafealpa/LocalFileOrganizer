@@ -217,7 +217,7 @@
 
                 // WARN은 여기로 오지 않음 (서버는 WARN도 message로 보냄). WARN 카운트는 아래 custom 'error'가 아님.
                 // 실제 WARN은 eventName=message로 전송되므로 별도 케이스 처리 필요 시 level==='WARN'로 분기 가능
-                if (level === 'WARN' && messageText.includes('이미 존재하여 건너뜁니다')) {
+                if (level === 'WARN' && messageText.includes(' 건너뜁니다')) {
                     countExists += 1;
                     updateCounters();
                 }
