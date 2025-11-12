@@ -132,7 +132,7 @@ public class FileSortingService {
                     // yyyyMMdd 추출 및 검증
                     String datePrefix;
                     if (fileName.toUpperCase().startsWith("IMG_") || fileName.toUpperCase().startsWith("SNOW_")) {
-                        datePrefix = fileName
+                        datePrefix = fileName.toUpperCase()
                                 .replace("IMG_", "")
                                 .replace("SNOW_", "")
                                 .substring(0, 8);
