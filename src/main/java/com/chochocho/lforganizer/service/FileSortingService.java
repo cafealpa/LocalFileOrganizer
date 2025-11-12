@@ -173,7 +173,7 @@ public class FileSortingService {
 
                         try {
                             Files.move(file, trashFile); // 중복 파일 trash 폴더로 이동
-                        } catch (FileAlreadyExistsException faee) {
+                        } catch (FileAlreadyExistsException faeE) {
                             Files.delete(file);
                             log.info("'{}' - Trash 폴더에도 파일이 존재하여 원본파일을 삭제합니다.", file.getFileName());
                         }
